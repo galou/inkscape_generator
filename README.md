@@ -19,7 +19,7 @@ Use
 
 The entry point is in menu "Extensions/Export/Generator...".
 
-The behavior is detailled at http://wiki.colivre.net/Aurium/InkscapeGenerator. The CSV file must be comma-separated and the text fields must be double-quoted.
+The idea and implementation inspiration is taken from Aurélio A. Heckert. The behavior is detailled on his web site: http://wiki.colivre.net/Aurium/InkscapeGenerator. The CSV file must be comma-separated and the text fields must be double-quoted.
 
 How vars are replaced?
 
