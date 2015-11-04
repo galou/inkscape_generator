@@ -29,58 +29,65 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 Release notes:
-    - version 0.5, 2014-11: complete rewrite in Python of the original Bash extension
+    - version 0.5, 2014-11: complete rewrite in Python of the original Bash
+                            extension
                  * added support for csv data with commas
                  * added support for csv data with xml special characters
                  * added support for layer visibility change based on variables
                  * temporarily removed jpg support because Inkscape cannot
                    convert to jpg from the command line.
-                 * temporarily removed the gui functionalities provided by zenity.
+                 * temporarily removed the gui functionalities provided by
+                   zenity.
 '''
 import os
 import tempfile
 import csv
 import re
+import shutil
 import StringIO
 from lxml import etree
 from xml.sax.saxutils import escape
 import inkex
 from inkex import errormsg
-from inkex import _
+from gettext import gettext as _
+
+_use_rsvg = False
 
 
 class Generator(inkex.Effect):
     def __init__(self, *args, **kwargs):
         inkex.Effect.__init__(self, *args, **kwargs)
-        self.OptionParser.add_option("--tab")
-        self.OptionParser.add_option("--preview",
-                action="store", type="string",
-                dest="preview", default="false",
-                help="Preview")
-        self.OptionParser.add_option("--extra-vars",
-                action="store", type="string",
-                dest="extra_vars", default="",
-                help="Output format")
-        self.OptionParser.add_option("--format",
-                action="store", type="string",
-                dest="format", default="PDF",
-                help="Output format")
-        self.OptionParser.add_option("--dpi",
-                action="store", type="string",
-                dest="dpi", default="90",
-                help="dpi (resolution for png and jpg)")
-        self.OptionParser.add_option("-t", "--var-type",
-                action="store", type="string",
-                dest="var_type", default="name",
-                help="Replace variables by column number (number) or column name (name)")
-        self.OptionParser.add_option("-d", "--data-file",
-                action="store", type="string",
-                dest="datafile", default="data.csv",
-                help="The csv file")
-        self.OptionParser.add_option("-o", "--output",
-                action="store", type="string",
-                dest="output", default="%VAR_1.pdf",
-                help="Output pattern")
+        self.OptionParser.add_option('--tab')
+        self.OptionParser.add_option('--preview',
+                                     action='store', type='string',
+                                     dest='preview', default='false',
+                                     help='Preview')
+        self.OptionParser.add_option('--extra-vars',
+                                     action='store', type='string',
+                                     dest='extra_vars', default='',
+                                     help='Output format')
+        self.OptionParser.add_option('--format',
+                                     action='store', type='string',
+                                     dest='format', default='PDF',
+                                     help='Output format')
+        self.OptionParser.add_option('--dpi',
+                                     action='store', type='string',
+                                     dest='dpi', default='90',
+                                     help='dpi (resolution for png and jpg)')
+        self.OptionParser.add_option('-t', '--var-type',
+                                     action='store', type='string',
+                                     dest='var_type', default='name',
+                                     help=('Replace variables by ' +
+                                           'column number ' +
+                                           '(number) or column name (name)'))
+        self.OptionParser.add_option('-d', '--data-file',
+                                     action='store', type='string',
+                                     dest='datafile', default='data.csv',
+                                     help='The csv file')
+        self.OptionParser.add_option('-o', '--output',
+                                     action='store', type='string',
+                                     dest='output', default='%VAR_1.pdf',
+                                     help='Output pattern')
         self.header = None
         self.data = None
         self.tmpdir = tempfile.mkdtemp(prefix='ink-generator')
@@ -111,8 +118,10 @@ class Generator(inkex.Effect):
             try:
                 self.header = reader.next()
             except StopIteration:
-                errormsg(_('Data file "{}" contains no data'.format(self.options.datafile)))
-                raise Exception(_('Data file "{}" contains no data'.format(self.options.datafile)))
+                errormsg(_('Data file "{}" contains no data'.format(
+                    self.options.datafile)))
+                raise Exception(_('Data file "{}" contains no data'.format(
+                    self.options.datafile)))
         self.data = []
         for row in reader:
             self.data.append(row)
@@ -144,8 +153,8 @@ class Generator(inkex.Effect):
         try:
             f = open(svgout, 'w')
             f.write(etree.tostring(root,
-                encoding='utf-8',
-                xml_declaration=True))
+                                   encoding='utf-8',
+                                   xml_declaration=True))
         except IOError:
             errormsg(_('Cannot open "' + svgout + '" for writing'))
         finally:
@@ -175,7 +184,8 @@ class Generator(inkex.Effect):
                 old_txt, column = t.split('=>')
             except ValueError:
                 errormsg(_('Unrecognized replacement string {}'.format(t)))
-                raise Exception(_('Unrecognized replacement string {}'.format(t)))
+                raise Exception(_('Unrecognized replacement string {}'.format(
+                    t)))
             if line.find(old_txt) < 0:
                 # Nothing to be replaced.
                 continue
@@ -187,7 +197,8 @@ class Generator(inkex.Effect):
                     raise Exception(_('Wrong column name "{}"'.format(column)))
                 else:
                     errormsg(_('Wrong column number ({})'.format(column)))
-                    raise Exception(_('Wrong column number ({})'.format(column)))
+                    raise Exception(_('Wrong column number ({})'.format(
+                        column)))
             line = line.replace(old_txt, new_txt)
         return line
 
@@ -252,7 +263,7 @@ class Generator(inkex.Effect):
     def export(self):
         """Writes out all output files"""
         def get_export_cmd(svgfile, fmt, dpi, outfile):
-            if False and os.name == 'posix':
+            if _use_rsvg and os.name == 'posix':
                 # Deactivated for now because rsvg-convert (v 2.36.4) changes
                 # the size in output pdf files for some svg files. It's a pity,
                 # rsvg-convert is much faster.
@@ -261,7 +272,7 @@ class Generator(inkex.Effect):
                     return ('rsvg-convert' +
                             ' --dpi-x=' + dpi +
                             ' --dpi-y=' + dpi +
-                            ' --format='+ fmt +
+                            ' --format=' + fmt +
                             ' --output="' + outfile + '"' +
                             ' "' + svgfile + '"')
             else:
@@ -279,23 +290,23 @@ class Generator(inkex.Effect):
                 outfile = outfile.replace('jpg', 'png')
             if self.options.format == 'svg':
                 try:
-                    os.rename(svgfile, outfile)
+                    shutil.move(svgfile, outfile)
                 except OSError:
                     errormsg(_('Cannot create "' + outfile + '"'))
             else:
                 cmd = get_export_cmd(svgfile,
-                        self.options.format,
-                        self.options.dpi, outfile)
+                                     self.options.format,
+                                     self.options.dpi, outfile)
                 os.system(cmd)
 
     def show_preview(self):
         systems = {
-                'nt': os.startfile if 'startfile' in dir(os) else None,
-                'posix': lambda fname: os.system(
-                    'xdg-open "{0}"'.format(fname)),
-                'os2': lambda fname: os.system(
-                    'open "{0}"'.format(fname)),
-                }
+            'nt': os.startfile if 'startfile' in dir(os) else None,
+            'posix': lambda fname: os.system(
+                'xdg-open "{0}"'.format(fname)),
+            'os2': lambda fname: os.system(
+                'open "{0}"'.format(fname)),
+        }
         try:
             line = self.svgouts.keys()[0]
             d = self.get_line_desc(line)
