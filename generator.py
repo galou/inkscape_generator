@@ -29,6 +29,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 Release notes:
+    - version 0.6, 2020-11: ported for Inkscape v1+.
     - version 0.5, 2014-11: complete rewrite in Python of the original Bash
                             extension
                  * added support for csv data with commas
@@ -39,6 +40,9 @@ Release notes:
                  * temporarily removed the gui functionalities provided by
                    zenity.
 '''
+
+from __future__ import division
+
 import os
 import tempfile
 import csv
@@ -51,42 +55,44 @@ import inkex
 from inkex import errormsg
 from gettext import gettext as _
 
+# Deactivate for now (2020-12) because rsvg-convert does not export images
+# correctly.
 _use_rsvg = False
 
 
 class Generator(inkex.Effect):
     def __init__(self, *args, **kwargs):
         inkex.Effect.__init__(self, *args, **kwargs)
-        self.OptionParser.add_option('--tab')
-        self.OptionParser.add_option('--preview',
-                                     action='store', type='string',
+        self.arg_parser.add_argument('--tab')
+        self.arg_parser.add_argument('--preview',
+                                     type=str,
                                      dest='preview', default='false',
                                      help='Preview')
-        self.OptionParser.add_option('--extra-vars',
-                                     action='store', type='string',
+        self.arg_parser.add_argument('--extra-vars',
+                                     type=str,
                                      dest='extra_vars', default='',
                                      help='Output format')
-        self.OptionParser.add_option('--format',
-                                     action='store', type='string',
+        self.arg_parser.add_argument('--format',
+                                     type=str,
                                      dest='format', default='PDF',
                                      help='Output format')
-        self.OptionParser.add_option('--dpi',
-                                     action='store', type='string',
-                                     dest='dpi', default='90',
-                                     help='dpi (resolution for png and jpg)')
-        self.OptionParser.add_option('-t', '--var-type',
-                                     action='store', type='string',
+        self.arg_parser.add_argument('--dpi',
+                                     type=float,
+                                     dest='dpi', default=96.0,
+                                     help='DPI (resolution for png and jpg)')
+        self.arg_parser.add_argument('-t', '--var-type',
+                                     type=str,
                                      dest='var_type', default='name',
-                                     help=('Replace variables by ' +
-                                           'column number ' +
+                                     help=('Replace variables by '
+                                           'column number '
                                            '(number) or column name (name)'))
-        self.OptionParser.add_option('-d', '--data-file',
-                                     action='store', type='string',
+        self.arg_parser.add_argument('-d', '--data-file',
+                                     type=str,
                                      dest='datafile', default='data.csv',
                                      help='The csv file')
-        self.OptionParser.add_option('-o', '--output',
-                                     action='store', type='string',
-                                     dest='output', default='%VAR_1.pdf',
+        self.arg_parser.add_argument('-o', '--output-pattern',
+                                     type=str,
+                                     dest='output_pattern', default='%VAR_1.pdf',
                                      help='Output pattern')
         self.header = None
         self.data = None
@@ -140,7 +146,7 @@ class Generator(inkex.Effect):
     def create_svg(self, name_dict):
         """Writes out a modified svg"""
         s = StringIO.StringIO()
-        for svg_line in open(self.svg_file, 'r').readlines():
+        for svg_line in open(self.options.input_file, 'r').readlines():
             # Modify the line to handle replacements from extension GUI
             svg_line = self.expand_extra_vars(svg_line, name_dict)
             # Modify the line to handle variables in svg file
@@ -172,7 +178,7 @@ class Generator(inkex.Effect):
 
     def get_output(self, name_dict):
         """Return the name of the output file for a csv entry"""
-        return self.expand_vars(self.options.output, name_dict)
+        return self.expand_vars(self.options.output_pattern, name_dict)
 
     def expand_extra_vars(self, line, name_dict):
         """Replace extra replacement values with the content from a csv entry"""
@@ -264,21 +270,21 @@ class Generator(inkex.Effect):
         """Writes out all output files"""
         def get_export_cmd(svgfile, fmt, dpi, outfile):
             if _use_rsvg and os.name == 'posix':
-                # Deactivated for now because rsvg-convert (v 2.36.4) changes
-                # the size in output pdf files for some svg files. It's a pity,
-                # rsvg-convert is much faster.
+                # A DPI of 72 must be set to convert from files generated with
+                # Inkscape v1+ to get the correct page size.
                 ret = os.system('rsvg-convert --version 1>/dev/null')
                 if ret == 0:
                     return ('rsvg-convert' +
-                            ' --dpi-x=' + dpi +
-                            ' --dpi-y=' + dpi +
+                            ' --dpi-x=' + str(dpi * 72.0 / 96.0) +
+                            ' --dpi-y=' + str(dpi * 72.0 / 96.0) +
                             ' --format=' + fmt +
                             ' --output="' + outfile + '"' +
                             ' "' + svgfile + '"')
             else:
-                return ('inkscape --without-gui ' +
-                        '--export-dpi=' + dpi + ' ' +
-                        '--export-' + fmt + '="' + outfile + '" '
+                return ('inkscape '
+                        + '--export-dpi=' + str(dpi) + ' '
+                        + '--export-type=' + fmt + ' '
+                        + '--export-filename="' + outfile + '" '
                         '"' + svgfile + '"')
 
         for line, svgfile in self.svgouts.iteritems():
@@ -324,4 +330,4 @@ class Generator(inkex.Effect):
 
 if __name__ == '__main__':
     e = Generator()
-    e.affect()
+    e.run()

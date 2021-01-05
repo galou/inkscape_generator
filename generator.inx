@@ -5,43 +5,46 @@
   <_name>Generator</_name>
   <id>github.galou.inkscape_generator</id>
 
-  <dependency type="executable" location="extensions">generator.py</dependency>
+  <dependency type="executable" location="inx">generator.py</dependency>
 
   <param name="tab" type="notebook">
-	  <page name="tabA" _gui-text="Configuration">
+    <page name="tabA" _gui-text="Configuration">
 
-		  <param name="var-type" type="enum" _gui-text="Collect values by:">
-			  <_item value="column">column position</_item>
-			  <_item value="name">column name</_item>
-		  </param>
+      <param name="var-type" type="optiongroup" _gui-text="Collect values by:">
+	<option value="column">column position</option>
+	<option value="name">column name</option>
+      </param>
 
-  <param name="sep" type="description">•••••••••••••••••••••••••••••••••••••••••••••••••••••••••</param>
+      <separator/>
 
-  <_param name="info1" type="description">Extra textual values to be replaced:</_param>
-  <param name="extra-vars" type="string" gui-text=" "></param>
+      <label>Extra textual values to be replaced:</label>
+      <param name="extra-vars" type="string" gui-text=" "></param>
 
-  <param name="sep" type="description">•••••••••••••••••••••••••••••••••••••••••••••••••••••••••</param>
+      <separator />
 
-  <param name="data-file" type="string" _gui-text="Data file:"></param>
-  <_param name="extraVarInfo" type="description">The data file must be a CSV with comma separated columns</_param>
+      <param name="data-file" type="string" _gui-text="Data file:"></param>
+      <!-- Buggy  with inkscape 3bc2e81 -->
+      <!-- <param name="data-file" type="path" mode="file" filetypes="csv,*" gui-text="Data file:"></param> -->
+      <label>The data file must be a CSV with comma separated columns</label>
 
-  <param name="sep" type="description">•••••••••••••••••••••••••••••••••••••••••••••••••••••••••</param>
+      <separator />
 
-  <param name="format" type="enum" _gui-text="Exportation format:">
-    <item>PDF</item>
-    <item>SVG</item>
-    <item>PS</item>
-    <item>EPS</item>
-    <item>PNG</item>
-    <!-- <item>JPG</item> -->
-  </param>
-  <param name="dpi" type="string" _gui-text="DPI (for PNG):">90</param>
-  <param name="output" type="string" _gui-text="Output pattern:">$HOME/generator-output/%VAR_1%.pdf</param>
-  <param name="preview" type="boolean" _gui-text="Preview (make and show one register):"></param>
+      <param name="format" type="optiongroup" appearance="combo" _gui-text="Export format:">
+	<option>PDF</option>
+	<option>SVG</option>
+	<option>PS</option>
+	<option>EPS</option>
+	<option>PNG</option>
+	<!-- <option>JPG</option> -->
+      </param>
+
+      <param name="dpi" type="float" max="1000000.0" value="96" gui-text="DPI (for PNG):"></param>
+      <param name="output" type="string" _gui-text="Output pattern:">$HOME/generator-output/%VAR_1%.pdf</param>
+      <param name="preview" type="boolean" gui-text="Preview (make and show one register)"></param>
 
     </page>
     <page name="tabB" _gui-text="Help, drawing replacement">
-	    <_param name="helpTxt" type="description">
+      <label xml:space="preserve">
 How vars are replaced?
 
 There are three places were replacement occur.
@@ -59,27 +62,27 @@ cf. tab "Help, extra values"
 3. Inclusion or deletion of special layers
 
 cf. tab "Help, layers"
-	</_param>
+	</label>
     </page>
     <page name="tabC" _gui-text="Help, extra values">
 
-	    <_param name="helpTxt" type="description">
+      <label xml:space="preserve">
 2. Replacement in "Configuration" tab, "extra textual values to be replaced"
 
 You can replace other text paterns, like element values with this configuration. On the second field, add all extra text to be replaced in a line separated by "|", pointing to the replacer column with "=>" (name or number depending on the configuration choice). Do not use spaces if that is not part of the blocks!
 For example, we can make the red and green colors as variables to be replaced by some other colors form the database at the columns "secure color" and "sector color":
 #ff0000=>secure_color|#00ff00=>sector_color
 All pure red and pure green elements will have new colors for each data line.
-	    </_param>
+	    </label>
     </page>
     <page name="tabD" _gui-text="Help, layers">
-	    <_param name="helpTxt" type="description">
+      <label xml:space="preserve">
 3. Inclusion or deletion of special layers
 
 Layers can be given two special names %IF_#% or %UNLESS_#% (cf. tab "Help, drawing replacement" for the signification of #). A layer with name %IF_#% will be included in the output document if the entry corresponding to column # is not empty and if it is neither "0", nor "false", nor "no". A layer with name %UNLESS_#% will be included if the entry is empty or if it is "0", "false", or "no". In both cases, the layer visibility will be set to true. Extra text after the second "%" in the layer name will be ignored, so that you can use the same condition for two layers with different labels, what is compulsory.
 
 If you are not sure about the usable variables, run it on preview mode and the replaceable texts wil be showed to you.
-	    </_param>
+      </label>
     </page>
   </param>
 
@@ -91,7 +94,7 @@ If you are not sure about the usable variables, run it on preview mode and the r
   </effect>
 
   <script>
-      <command reldir="extensions" interpreter="python">generator.py</command>
+      <command location="inx" interpreter="python">generator.py</command>
   </script>
 
 </inkscape-extension>
