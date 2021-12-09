@@ -39,7 +39,7 @@
       </param>
 
       <param name="dpi" type="float" max="1000000.0" value="96" gui-text="DPI (for PNG):"></param>
-      <param name="output" type="string" _gui-text="Output pattern:">$HOME/generator-output/%VAR_1%.pdf</param>
+      <param name="output-pattern" type="string" _gui-text="Output pattern:">$HOME/generator-output/%VAR_1%.pdf</param>
       <param name="preview" type="boolean" gui-text="Preview (make and show one register)"></param>
 
     </page>
