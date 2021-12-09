@@ -29,6 +29,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 Release notes:
+    - version 0.6.1, 2021-12: support for Python 3 added.
     - version 0.6, 2020-11: ported for Inkscape v1+.
     - version 0.5, 2014-11: complete rewrite in Python of the original Bash
                             extension
@@ -41,19 +42,18 @@ Release notes:
                    zenity.
 '''
 
-from __future__ import division
-
-import os
-import tempfile
+from gettext import gettext as _
+from io import StringIO
+from xml.sax.saxutils import escape
 import csv
+import os
 import re
 import shutil
-import StringIO
-from lxml import etree
-from xml.sax.saxutils import escape
+import tempfile
+import xml.etree.ElementTree as et
+
 import inkex
 from inkex import errormsg
-from gettext import gettext as _
 
 # Deactivate for now (2020-12) because rsvg-convert does not export images
 # correctly.
@@ -115,22 +115,23 @@ class Generator(inkex.Effect):
 
     def handle_csv(self):
         """Read data from the csv file and store the rows into self.data"""
-        try:
-            reader = csv.reader(open(self.options.datafile, 'r'))
-        except IOError:
-            errormsg(_('Cannot read "{}"'.format(self.options.datafile)))
-            raise Exception(_('Cannot read "{}"'.format(self.options.datafile)))
-        if self.options.var_type == 'name':
+        with open(self.options.datafile, 'r') as data_file:
             try:
-                self.header = reader.next()
-            except StopIteration:
-                errormsg(_('Data file "{}" contains no data'.format(
-                    self.options.datafile)))
-                raise Exception(_('Data file "{}" contains no data'.format(
-                    self.options.datafile)))
-        self.data = []
-        for row in reader:
-            self.data.append(row)
+                reader = csv.reader(data_file)
+            except IOError:
+                errormsg(_('Cannot read "{}"'.format(self.options.datafile)))
+                raise Exception(_('Cannot read "{}"'.format(self.options.datafile)))
+            if self.options.var_type == 'name':
+                try:
+                    self.header = next(reader)
+                except StopIteration:
+                    errormsg(_('Data file "{}" contains no data'.format(
+                        self.options.datafile)))
+                    raise Exception(_('Data file "{}" contains no data'.format(
+                        self.options.datafile)))
+            self.data = []
+            for row in reader:
+                self.data.append(row)
 
     def create_svg_number(self):
         """Create a header, read each line and fill self.svgouts"""
@@ -145,27 +146,28 @@ class Generator(inkex.Effect):
 
     def create_svg(self, name_dict):
         """Writes out a modified svg"""
-        s = StringIO.StringIO()
-        for svg_line in open(self.options.input_file, 'r').readlines():
-            # Modify the line to handle replacements from extension GUI
-            svg_line = self.expand_extra_vars(svg_line, name_dict)
-            # Modify the line to handle variables in svg file
-            svg_line = self.expand_vars(svg_line, name_dict)
-            s.write(svg_line)
+        s = StringIO()
+        with open(self.options.input_file, 'r') as svg_file:
+            for svg_line in svg_file.readlines():
+                # Modify the line to handle replacements from extension GUI
+                svg_line = self.expand_extra_vars(svg_line, name_dict)
+                # Modify the line to handle variables in svg file
+                svg_line = self.expand_vars(svg_line, name_dict)
+                s.write(svg_line)
         # Modify the svg to include or exclude groups
-        root = etree.fromstring(s.getvalue())
+        root = et.fromstring(s.getvalue())
+        s.close()
         self.filter_layers(root, name_dict)
         svgout = self.get_svgout()
         try:
-            f = open(svgout, 'w')
-            f.write(etree.tostring(root,
-                                   encoding='utf-8',
-                                   xml_declaration=True))
+            with open(svgout, 'w') as f:
+                f.write(et.tostring(root,
+                    encoding='utf-8',
+                    xml_declaration=True).decode('utf-8'))
         except IOError:
             errormsg(_('Cannot open "' + svgout + '" for writing'))
         finally:
             f.close()
-        s.close()
         return svgout
 
     def get_svgout(self):
@@ -212,13 +214,13 @@ class Generator(inkex.Effect):
         """Replace %VAR_???% with the content from a csv entry"""
         if '%' not in line:
             return line
-        for k, v in name_dict.iteritems():
+        for k, v in name_dict.items():
             line = line.replace('%VAR_' + k + '%', escape(v))
         return line
 
     def filter_layers(self, root, name_dict):
         """Return the xml root with filtered layers"""
-        for g in root.xpath("//svg:g", namespaces=inkex.NSS):
+        for g in root.findall(".//svg:g", namespaces=inkex.NSS):
             attr = inkex.addNS('label', ns='inkscape')
             if attr not in g.attrib:
                 # Not a layer, skip.
@@ -287,7 +289,7 @@ class Generator(inkex.Effect):
                         + '--export-filename="' + outfile + '" '
                         '"' + svgfile + '"')
 
-        for line, svgfile in self.svgouts.iteritems():
+        for line, svgfile in self.svgouts.items():
             d = self.get_line_desc(line)
             outfile = self.get_output(d)
             if self.options.format == 'jpg':
@@ -324,9 +326,10 @@ class Generator(inkex.Effect):
     def clean(self):
         """Delete temporary svg files and directory"""
         if self.options.format != 'svg':
-            for svgfile in self.svgouts.itervalues():
+            for svgfile in self.svgouts.values():
                 os.remove(svgfile)
         os.rmdir(self.tmpdir)
+
 
 if __name__ == '__main__':
     e = Generator()
