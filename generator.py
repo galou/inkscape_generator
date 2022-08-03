@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-'''
+"""
 Generator - a Inkscape extension to generate end-use files from a model
 
 Initiator:  Aurélio A. Heckert (Bash version, up to Version 0.4)
@@ -29,6 +29,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 Release notes:
+    - version 0.6.2, 2022-08: - Create the directory for output files, if
+                                required.
+                              - Handle special characters (e.g. '/') in
+                                variables.
     - version 0.6.1, 2021-12: support for Python 3 added.
     - version 0.6, 2020-11: ported for Inkscape v1+.
     - version 0.5, 2014-11: complete rewrite in Python of the original Bash
@@ -40,20 +44,29 @@ Release notes:
                    convert to jpg from the command line.
                  * temporarily removed the gui functionalities provided by
                    zenity.
-'''
+"""
 
 from gettext import gettext as _
 from io import StringIO
 from xml.sax.saxutils import escape
+import copy
 import csv
 import os
+from pathlib import Path
 import re
 import shutil
 import tempfile
+from typing import Dict, List
 import xml.etree.ElementTree as et
 
 import inkex
 from inkex import errormsg
+
+# Type hints.
+CsvRow = List[str]
+# One entry from the database as dictionnary
+# {column_name: value_for_this_entry}.
+Entry = Dict[str, str]
 
 # Deactivate for now (2020-12) because rsvg-convert does not export images
 # correctly.
@@ -92,18 +105,19 @@ class Generator(inkex.Effect):
                                      help='The csv file')
         self.arg_parser.add_argument('-o', '--output-pattern',
                                      type=str,
-                                     dest='output_pattern', default='%VAR_1.pdf',
+                                     dest='output_pattern',
+                                     default='%VAR_1.pdf',
                                      help='Output pattern')
         self.header = None
         self.data = None
-        self.tmpdir = tempfile.mkdtemp(prefix='ink-generator')
-        # svgouts is a dict {row_as_list: tmp_svg_output_file}
-        self.svgouts = {}
+        self.tmpdir = Path(tempfile.mkdtemp(prefix='ink-generator'))
+        # svgouts is a dict {row_as_list: tmp_svg_output_file}.
+        self.svgouts: Dict[Entry, Path] = {}
 
     def effect(self):
         """Do the work"""
         self.options.format = self.options.format.lower()
-        self.handle_csv()
+        self.read_csv()
         if self.options.var_type == 'name':
             self.create_svg_name()
         else:
@@ -113,23 +127,25 @@ class Generator(inkex.Effect):
             self.show_preview()
         self.clean()
 
-    def handle_csv(self):
-        """Read data from the csv file and store the rows into self.data"""
-        with open(self.options.datafile, 'r') as data_file:
+    def read_csv(self):
+        """Read data from the csv file and store the rows into self.data."""
+        with Path(self.options.datafile).expanduser().open() as data_file:
             try:
                 reader = csv.reader(data_file)
             except IOError:
-                errormsg(_('Cannot read "{}"'.format(self.options.datafile)))
-                raise Exception(_('Cannot read "{}"'.format(self.options.datafile)))
+                msg = _('Cannot read "{}"'.format(self.options.datafile))
+                errormsg(msg)
+                raise Exception(msg)
+            # Read the first row as header when using column names as keys.
             if self.options.var_type == 'name':
                 try:
                     self.header = next(reader)
                 except StopIteration:
-                    errormsg(_('Data file "{}" contains no data'.format(
-                        self.options.datafile)))
-                    raise Exception(_('Data file "{}" contains no data'.format(
-                        self.options.datafile)))
-            self.data = []
+                    msg = _('Data file "{}" contains no data'.format(
+                        self.options.datafile))
+                    errormsg(msg)
+                    raise Exception(msg)
+            self.data: List[CsvRow] = []
             for row in reader:
                 self.data.append(row)
 
@@ -139,51 +155,81 @@ class Generator(inkex.Effect):
         self.create_svg_name()
 
     def create_svg_name(self):
-        """Read each line and fill self.svgouts"""
-        for l in self.data:
-            d = self.get_line_desc(l)
-            self.svgouts[tuple(l)] = self.create_svg(d)
+        """Read each line in self.data and fill self.svgouts."""
+        for line in self.data:
+            d = self.get_line_as_dict(line)
+            self.svgouts[tuple(line)] = self.create_svg(d)
 
-    def create_svg(self, name_dict):
-        """Writes out a modified svg"""
+    def create_svg(self, name_dict: Entry) -> Path:
+        """Writes out a modified svg and return the file path."""
         s = StringIO()
-        with open(self.options.input_file, 'r') as svg_file:
+        with Path(self.options.input_file).expanduser().open() as svg_file:
             for svg_line in svg_file.readlines():
-                # Modify the line to handle replacements from extension GUI
+                # Modify the line to handle extra replacements from the
+                # plugin GUI.
                 svg_line = self.expand_extra_vars(svg_line, name_dict)
                 # Modify the line to handle variables in svg file
                 svg_line = self.expand_vars(svg_line, name_dict)
                 s.write(svg_line)
-        # Modify the svg to include or exclude groups
+        # Modify the svg to include or exclude groups.
         root = et.fromstring(s.getvalue())
         s.close()
         self.filter_layers(root, name_dict)
         svgout = self.get_svgout()
         try:
-            with open(svgout, 'w') as f:
+            with svgout.open('w') as f:
                 f.write(et.tostring(root,
-                    encoding='utf-8',
-                    xml_declaration=True).decode('utf-8'))
+                                    encoding='utf-8',
+                                    xml_declaration=True).decode('utf-8'))
         except IOError:
-            errormsg(_('Cannot open "' + svgout + '" for writing'))
-        finally:
-            f.close()
+            errormsg(_('Cannot open "{}" for writing'.format(svgout)))
         return svgout
 
-    def get_svgout(self):
-        """Return the name of a temporary svg file"""
-        return tempfile.mktemp(dir=self.tmpdir, suffix='.svg')
+    def get_svgout(self) -> Path:
+        """Return the path to a temporary svg file."""
+        return Path(tempfile.mktemp(dir=self.tmpdir, suffix='.svg'))
 
-    def get_line_desc(self, line):
-        """Return the current csv line as dict with csv headers as keys"""
+    def get_line_as_dict(self, line: CsvRow) -> Entry:
+        """Return the current csv line as dict with csv headers as keys."""
         return dict(zip(self.header, line))
 
-    def get_output(self, name_dict):
-        """Return the name of the output file for a csv entry"""
-        return self.expand_vars(self.options.output_pattern, name_dict)
+    @classmethod
+    def sanitize_for_file(cls, name_dict: Entry, output_pattern: str) -> Entry:
+        """Remove characters not allowed in file names.
 
-    def expand_extra_vars(self, line, name_dict):
-        """Replace extra replacement values with the content from a csv entry"""
+        Remove characters from the values of `name_dict` that are not allowed
+        in file names. Only variables mentioned in output_pattern will be
+        touched.
+
+        """
+        blacklist = '/\\#$:!<>?, '
+
+        def sanitize(s: str) -> str:
+            return ''.join(['_' if (c in blacklist) else c for c in s])
+
+        out_name_dict = copy.copy(name_dict)
+        # Retrieve mentioned variables.
+        matches = re.findall('%VAR_([^%]*)%', output_pattern)
+        for match in matches:
+            try:
+                out_name_dict[match] = sanitize(out_name_dict[match])
+            except KeyError:
+                errormsg(_('Column "' + match + '" not in the csv file'))
+                continue
+        return out_name_dict
+
+    def get_output(self, name_dict: Entry) -> Path:
+        """Return the path to the output file for a csv entry."""
+        sane_name_dict = self.sanitize_for_file(name_dict,
+                self.options.output_pattern)
+        row = self.expand_vars(self.options.output_pattern, sane_name_dict)
+        # Replace characters not allowed in filenames.
+        import sys #DEBUG
+        print(f'Path: {Path(row).expanduser()}', file=sys.stderr) #DEBUG
+        return Path(row).expanduser()
+
+    def expand_extra_vars(self, line: str, name_dict: Entry):
+        """Replace extra replacement values with the content from a csv entry."""
         if not self.options.extra_vars:
             return line
         replacement_strings = self.options.extra_vars.split('|')
@@ -191,9 +237,9 @@ class Generator(inkex.Effect):
             try:
                 old_txt, column = t.split('=>')
             except ValueError:
-                errormsg(_('Unrecognized replacement string {}'.format(t)))
-                raise Exception(_('Unrecognized replacement string {}'.format(
-                    t)))
+                msg = _('Unrecognized replacement string {}'.format(t))
+                errormsg(msg)
+                raise Exception(msg)
             if line.find(old_txt) < 0:
                 # Nothing to be replaced.
                 continue
@@ -201,24 +247,25 @@ class Generator(inkex.Effect):
                 new_txt = escape(name_dict[column])
             except KeyError:
                 if self.options.var_type == 'name':
-                    errormsg(_('Wrong column name "{}"'.format(column)))
-                    raise Exception(_('Wrong column name "{}"'.format(column)))
+                    msg = _('Wrong column name "{}"'.format(column))
+                    errormsg(msg)
+                    raise Exception(msg)
                 else:
-                    errormsg(_('Wrong column number ({})'.format(column)))
-                    raise Exception(_('Wrong column number ({})'.format(
-                        column)))
+                    msg = _('Wrong column number ({})'.format(column))
+                    errormsg(msg)
+                    raise Exception(msg)
             line = line.replace(old_txt, new_txt)
         return line
 
-    def expand_vars(self, line, name_dict):
-        """Replace %VAR_???% with the content from a csv entry"""
+    def expand_vars(self, line, name_dict: Entry):
+        """Replace %VAR_???% with the content from a csv entry."""
         if '%' not in line:
             return line
         for k, v in name_dict.items():
             line = line.replace('%VAR_' + k + '%', escape(v))
         return line
 
-    def filter_layers(self, root, name_dict):
+    def filter_layers(self, root: et.Element, name_dict: Entry):
         """Return the xml root with filtered layers"""
         for g in root.findall(".//svg:g", namespaces=inkex.NSS):
             attr = inkex.addNS('label', ns='inkscape')
@@ -269,9 +316,9 @@ class Generator(inkex.Effect):
                     g.clear()
 
     def export(self):
-        """Writes out all output files"""
-        def get_export_cmd(svgfile, fmt, dpi, outfile):
-            if _use_rsvg and os.name == 'posix':
+        """Writes out all output files."""
+        def get_export_cmd(svgfile: str, fmt: str, dpi: float, outfile: Path):
+            if _use_rsvg and (os.name == 'posix'):
                 # A DPI of 72 must be set to convert from files generated with
                 # Inkscape v1+ to get the correct page size.
                 ret = os.system('rsvg-convert --version 1>/dev/null')
@@ -280,22 +327,25 @@ class Generator(inkex.Effect):
                             ' --dpi-x=' + str(dpi * 72.0 / 96.0) +
                             ' --dpi-y=' + str(dpi * 72.0 / 96.0) +
                             ' --format=' + fmt +
-                            ' --output="' + outfile + '"' +
+                            ' --output="' + str(outfile) + '"' +
                             ' "' + svgfile + '"')
             else:
+                # Slowlier but more portable.
                 return ('inkscape '
                         + '--export-dpi=' + str(dpi) + ' '
                         + '--export-type=' + fmt + ' '
-                        + '--export-filename="' + outfile + '" '
+                        + '--export-filename="' + str(outfile) + '" '
                         '"' + svgfile + '"')
 
         for line, svgfile in self.svgouts.items():
-            d = self.get_line_desc(line)
+            d = self.get_line_as_dict(line)
             outfile = self.get_output(d)
+            if not outfile.parent.exists():
+                outfile.parent.mkdir(parents=True, exist_ok=True)
             if self.options.format == 'jpg':
                 # TODO: output a jpg file
                 self.options.format = 'png'
-                outfile = outfile.replace('jpg', 'png')
+                outfile = Path(str(outfile).replace('jpg', 'png'))
             if self.options.format == 'svg':
                 try:
                     shutil.move(svgfile, outfile)
@@ -309,22 +359,20 @@ class Generator(inkex.Effect):
 
     def show_preview(self):
         systems = {
-            'nt': os.startfile if 'startfile' in dir(os) else None,
-            'posix': lambda fname: os.system(
-                'xdg-open "{0}"'.format(fname)),
-            'os2': lambda fname: os.system(
-                'open "{0}"'.format(fname)),
+            'nt': os.startfile if hasattr(os, 'startfile') else None,
+            'posix': lambda path: os.system(f'gio open "{path}"'),
+            'os2': lambda path: os.system(f'open "{path}"'),
         }
         try:
             line = self.svgouts.keys()[0]
-            d = self.get_line_desc(line)
+            d = self.get_line_as_dict(line)
             outfile = self.get_output(d)
             systems[os.name](outfile)
         except:
             errormsg(_('Error open preview file'))
 
     def clean(self):
-        """Delete temporary svg files and directory"""
+        """Delete temporary svg files and directory."""
         if self.options.format != 'svg':
             for svgfile in self.svgouts.values():
                 os.remove(svgfile)
