@@ -202,7 +202,7 @@ class Generator(inkex.Effect):
         touched.
 
         """
-        blacklist = '/\\#$:!<>?, '
+        blacklist = '/\\#$:!<>?, "\''
 
         def sanitize(s: str) -> str:
             return ''.join(['_' if (c in blacklist) else c for c in s])
@@ -224,8 +224,6 @@ class Generator(inkex.Effect):
                 self.options.output_pattern)
         row = self.expand_vars(self.options.output_pattern, sane_name_dict)
         # Replace characters not allowed in filenames.
-        import sys #DEBUG
-        print(f'Path: {Path(row).expanduser()}', file=sys.stderr) #DEBUG
         return Path(row).expanduser()
 
     def expand_extra_vars(self, line: str, name_dict: Entry):
